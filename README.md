@@ -1,6 +1,6 @@
 # coffee_brew_log
 
-A coffee brew log that installs on your phone like an app (PWA). No build step, no account: your data stays on your device.
+A coffee brew log that installs on your phone like an app (PWA). No build step. Works offline on its own, and syncs between your phone and computer when you sign in.
 
 ## Features
 
@@ -11,7 +11,10 @@ A coffee brew log that installs on your phone like an app (PWA). No build step, 
 - **Pour-over recipe generator**: Hoffmann Ultimate V60, Hoffmann 1-Cup V60, Kasuya 4:6 (with taste and strength options), Rao Spin, Kalita Wave pulse, Chemex and a two-pour flat bed. Each one scales to your dose and ratio and adjusts temperature for the roast. **Surprise me** picks one at random.
 - **AeroPress dice**: six dice (temperature, ratio, grind & steep, bloom, agitation, setup) inspired by James Hoffmann's AeroPress dice. Lock any dice you like and re-roll the rest. Hoffmann's Ultimate AeroPress and an Adler-style recipe are also included.
 - **Brew timer**: steps through any recipe with a beep and vibration at each step and keeps the screen awake. When you finish, it logs the brew with the elapsed time.
-- **Export / Import** as JSON, for backups or moving data between devices.
+- **Grinder details**: grinder (DF64V Gen3 or 1Zpresso Q), numeric grind setting and grind speed (RPM).
+- **Analytics**: chart of grind setting over time, filterable by brew method and grinder, with hover details and a data table.
+- **Sync across devices**: sign in (Google, or email and password) on each device to share one log via Firebase. Works offline and uploads changes when you reconnect.
+- **Export / Import** as JSON, for backups.
 
 ## Install on your phone
 
@@ -25,10 +28,13 @@ It then opens full-screen from its icon and works offline.
 
 ## Run locally
 
-Double-click `index.html`, or serve the folder (`npx serve .`) to test offline mode.
+Serve the folder (`npx serve .`) and open `http://localhost:3000`. Sign-in needs http(s), so double-clicking `index.html` only works signed out.
 
 ## Notes
 
-- Data is stored in the browser on each device, so your phone and laptop don't sync. Use Export / Import to move data between them, and export now and then as a backup.
+- Signed out, data lives only in that browser (`localStorage`). Signed in, it's stored in Firestore under `users/{uid}/` and mirrored locally; the first sign-in on a device uploads what was already there. Signing out clears the device's copy, not the account's.
+- Firebase setup: the web config is in `js/firebase-config.js`; Firestore rules must restrict `users/{uid}/**` to that user, and your Pages domain must be in Authentication → Authorized domains.
+- The Firebase SDK (compat build) is vendored in `js/vendor/` so the app loads offline.
+- Export now and then as a backup.
 - On iPhone, the home-screen app has its own storage, separate from Safari.
 - After changing app files, bump `CACHE` in `sw.js` so installed copies pick up the update.

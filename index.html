@@ -18,6 +18,7 @@
   <header class="topbar">
     <div class="brand">☕ Brew Log <span class="count" id="brewCount"></span></div>
     <div class="topbar-actions">
+      <button class="btn ghost sm" id="accountBtn" hidden>Sign in</button>
       <button class="btn ghost sm" id="exportBtn" title="Download all data as JSON">Export</button>
       <label class="btn ghost sm" title="Load data from a JSON export">Import
         <input type="file" id="importInput" accept="application/json,.json" hidden>
@@ -31,6 +32,7 @@
     <button data-view="beans"><span class="ti" aria-hidden="true">🫘</span>Beans</button>
     <button data-view="favourites"><span class="ti" aria-hidden="true">⭐</span>Favourites</button>
     <button data-view="recipes"><span class="ti" aria-hidden="true">🎲</span>Recipes</button>
+    <button data-view="analytics"><span class="ti" aria-hidden="true">📈</span>Analytics</button>
   </nav>
 
   <main>
@@ -62,10 +64,10 @@
           <div class="ratio-pill span2" id="ratioOut">Ratio —</div>
           <label>Water temp (°C)<input type="number" step="1" name="temp" inputmode="numeric"></label>
           <label><span id="timeLabel">Total time (m:ss)</span><input name="time" placeholder="3:30" inputmode="numeric"></label>
-          <label>Grinder<input name="grinder" list="grinderList" placeholder="e.g. Comandante C40"></label>
-          <label>Grind setting<input name="grind" placeholder="e.g. 24 clicks"></label>
+          <label>Grinder<select name="grinder" id="grinderSelect"></select></label>
+          <label>Grind setting<input type="number" step="any" min="0" name="grind" inputmode="decimal" placeholder="e.g. 24"></label>
+          <label>Grind speed (RPM)<select name="rpm" id="rpmSelect"></select></label>
         </div>
-        <datalist id="grinderList"></datalist>
 
         <fieldset class="method-fields">
           <legend id="methodLegend">Pour-over details</legend>
@@ -164,6 +166,29 @@
         <div id="apOutput"></div>
       </div>
     </section>
+
+    <!-- ANALYTICS -->
+    <section id="view-analytics" class="view">
+      <div class="toolbar">
+        <div class="chips" id="anMethodChips">
+          <button data-m="" class="chip active">All methods</button>
+          <button data-m="pourover" class="chip">Pour-over</button>
+          <button data-m="aeropress" class="chip">AeroPress</button>
+          <button data-m="rok" class="chip">ROK</button>
+        </div>
+        <div class="chips" id="anGrinderChips"></div>
+      </div>
+      <div class="card">
+        <h2 class="chart-title">Grind setting over time</h2>
+        <div class="muted small" id="anSummary"></div>
+        <div class="legend" id="anLegend"></div>
+        <div class="chart" id="anChart"></div>
+        <details class="chart-data">
+          <summary>Show data</summary>
+          <div id="anTable"></div>
+        </details>
+      </div>
+    </section>
   </main>
 
   <!-- Bean dialog -->
@@ -198,6 +223,34 @@
     </form>
   </dialog>
 
+  <!-- Account dialog -->
+  <dialog id="accountDialog">
+    <div class="form" id="accountOut">
+      <h2>Sync across devices</h2>
+      <p class="muted small">Sign in on your phone and computer with the same account to see the same brews and beans on both. Brews already on this device are added to your account.</p>
+      <button type="button" class="btn primary" id="googleSignIn">Continue with Google</button>
+      <form id="emailForm" class="form">
+        <span class="muted small">Or use email and password</span>
+        <label>Email<input type="email" name="email" autocomplete="email" required></label>
+        <label>Password<input type="password" name="password" autocomplete="current-password" minlength="6" required></label>
+        <div class="form-actions">
+          <button type="button" class="btn ghost" id="accountCancel">Cancel</button>
+          <button type="submit" class="btn ghost" value="create">Create account</button>
+          <button type="submit" class="btn primary" value="signin">Sign in</button>
+        </div>
+      </form>
+    </div>
+    <div class="form" id="accountIn" hidden>
+      <h2>Account</h2>
+      <p>Signed in as <strong id="accountEmail"></strong></p>
+      <p class="muted small">Your brews and beans sync automatically. Changes made offline upload when you're back online.</p>
+      <div class="form-actions">
+        <button type="button" class="btn ghost" id="signOutBtn">Sign out</button>
+        <button type="button" class="btn primary" id="accountClose">Done</button>
+      </div>
+    </div>
+  </dialog>
+
   <!-- Brew timer -->
   <div id="timer" class="timer" hidden>
     <div class="timer-head">
@@ -216,6 +269,10 @@
 
   <div id="toast" role="status" aria-live="polite"></div>
 
+  <script src="js/vendor/firebase-app-compat.js"></script>
+  <script src="js/vendor/firebase-auth-compat.js"></script>
+  <script src="js/vendor/firebase-firestore-compat.js"></script>
+  <script src="js/firebase-config.js"></script>
   <script src="js/store.js"></script>
   <script src="js/recipes.js"></script>
   <script src="js/app.js"></script>

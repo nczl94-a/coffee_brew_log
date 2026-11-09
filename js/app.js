@@ -76,6 +76,15 @@ const METHODS = {
   },
 };
 
+const GRINDERS = ['DF64V Gen3', '1Zpresso Q'];
+const RPMS = [800, 900, 1000, 1100, 1200, 1300, 1400, 1500, 1600, 1700, 1800];
+
+// Grind settings used to be free text ("24 clicks"); keep the number from those.
+const grindNum = g => {
+  const n = parseFloat(g);
+  return Number.isFinite(n) ? n : null;
+};
+
 // ---------------- navigation ----------------
 let currentView = 'log';
 
@@ -93,6 +102,7 @@ function render() {
   if (currentView === 'history') renderHistory();
   if (currentView === 'beans') renderBeans();
   if (currentView === 'favourites') renderFavourites();
+  if (currentView === 'analytics') renderAnalytics();
   if (currentView === 'log') { refreshBeanSelect(); refreshGrinders(); }
 }
 
@@ -116,10 +126,16 @@ function refreshBeanSelect(selected) {
   sel.value = cur && Store.bean(cur) ? cur : '';
 }
 
-function refreshGrinders() {
-  const names = [...new Set(Store.brews.map(b => b.grinder).filter(Boolean))];
-  $('#grinderList').innerHTML = names.map(n => `<option value="${esc(n)}">`).join('');
+function refreshGrinders(selected) {
+  const sel = $('#grinderSelect');
+  const cur = selected ?? sel.value;
+  // Grinders from older brews stay selectable so editing those brews keeps the value.
+  const names = [...new Set([...GRINDERS, ...Store.brews.map(b => b.grinder), cur].filter(Boolean))];
+  sel.innerHTML = '<option value=""></option>' + names.map(n => `<option>${esc(n)}</option>`).join('');
+  sel.value = cur || '';
 }
+
+$('#rpmSelect').innerHTML = '<option value=""></option>' + RPMS.map(r => `<option>${r}</option>`).join('');
 
 function renderMethodFields(method, values = {}) {
   const m = METHODS[method];
@@ -170,15 +186,15 @@ function fillBrewForm(b = {}, mode = 'new') {
   const method = METHODS[b.method] ? b.method : 'pourover';
   form.querySelector(`input[name=method][value=${method}]`).checked = true;
   refreshBeanSelect(b.beanId || '');
-  refreshGrinders();
+  refreshGrinders(b.grinder || '');
   const isEdit = mode === 'edit';
   F('date').value = isEdit && b.date ? b.date : nowLocal();
   F('recipeName').value = b.recipeName || '';
   F('dose').value = b.dose ?? '';
   F('water').value = b.water ?? '';
   F('temp').value = b.temp ?? '';
-  F('grinder').value = b.grinder || '';
-  F('grind').value = b.grind || '';
+  F('grind').value = grindNum(b.grind) ?? '';
+  F('rpm').value = b.rpm ?? '';
   F('time').value = fmtTime(b.time);
   F('notes').value = isEdit ? b.notes || '' : '';
   F('favourite').checked = isEdit && !!b.favourite;
@@ -207,8 +223,9 @@ function readBrewForm() {
     dose: num(F('dose').value),
     water: num(F('water').value),
     temp: num(F('temp').value),
-    grinder: F('grinder').value.trim(),
-    grind: F('grind').value.trim(),
+    grinder: F('grinder').value,
+    grind: num(F('grind').value),
+    rpm: num(F('rpm').value),
     time: parseTime(F('time').value),
     rating,
     notes: F('notes').value.trim(),
@@ -263,11 +280,12 @@ function brewCard(b) {
   const m = METHODS[b.method] || METHODS.pourover;
   const beanName = bean ? bean.name : b.beanId ? 'Deleted bean' : 'No bean';
   const unit = b.method === 'rok' ? 'out' : '';
+  const grindTxt = [b.grind, b.grinder].filter(x => x != null && x !== '').join(' on ') + (b.rpm ? ` @ ${b.rpm} rpm` : '');
   const stats = [
     b.dose != null && b.water != null ? `<span><b>${b.dose} g → ${b.water} g ${unit}</b> ${ratioText(b.dose, b.water)}</span>` : '',
     b.temp != null ? `<span>🌡 ${b.temp}°C</span>` : '',
     b.time != null ? `<span>⏱ ${fmtTime(b.time)}</span>` : '',
-    b.grind || b.grinder ? `<span>⚙ ${esc([b.grind, b.grinder].filter(Boolean).join(' on '))}</span>` : '',
+    grindTxt ? `<span>⚙ ${esc(grindTxt)}</span>` : '',
   ].filter(Boolean).join('');
   const kv = m.fields
     .filter(f => b.details && b.details[f.key] != null && b.details[f.key] !== '')
@@ -746,6 +764,130 @@ $('#apClassics').addEventListener('click', e => {
   renderRecipeOutput($('#apOutput'), AEROPRESS_CLASSICS.find(x => x.id === c.dataset.id).build());
 });
 
+// ---------------- analytics ----------------
+const anState = { method: '', grinder: '' };
+// Series colour follows the grinder, so filtering never repaints a line. Any other grinder folds into "Other".
+const SERIES = [...GRINDERS, 'Other'];
+const grinderGroup = g => (GRINDERS.includes(g) ? g : 'Other');
+const seriesColor = g => `var(--series-${SERIES.indexOf(g) + 1})`;
+
+function niceTicks(lo, hi, n = 5) {
+  if (lo === hi) { lo -= 1; hi += 1; }
+  const raw = (hi - lo) / n, mag = 10 ** Math.floor(Math.log10(raw));
+  const step = [1, 2, 2.5, 5, 10].map(k => k * mag).find(s => s >= raw);
+  const ticks = [];
+  for (let v = Math.floor(lo / step) * step; v < hi + step - 1e-9; v += step) ticks.push(+v.toFixed(6));
+  return ticks;
+}
+
+function analyticsPoints() {
+  return Store.brews
+    .map(b => ({ b, x: new Date(b.date), y: grindNum(b.grind), g: grinderGroup(b.grinder) }))
+    .filter(p => p.y != null && !isNaN(p.x))
+    .sort((a, b) => a.x - b.x);
+}
+
+function renderAnalytics() {
+  const all = analyticsPoints();
+  const groups = SERIES.filter(g => g !== 'Other' || all.some(p => p.g === 'Other'));
+  if (anState.grinder && !groups.includes(anState.grinder)) anState.grinder = '';
+  $('#anGrinderChips').innerHTML = [['', 'All grinders'], ...groups.map(g => [g, g])]
+    .map(([v, l]) => `<button data-g="${esc(v)}" class="chip${v === anState.grinder ? ' active' : ''}">${esc(l)}</button>`).join('');
+
+  const pts = all.filter(p => (!anState.method || p.b.method === anState.method) && (!anState.grinder || p.g === anState.grinder));
+  const shown = SERIES.filter(g => pts.some(p => p.g === g));
+  const box = $('#anChart');
+  $('#anLegend').innerHTML = shown.length > 1
+    ? shown.map(g => `<span><i style="background:${seriesColor(g)}"></i>${esc(g)}</span>`).join('') : '';
+  if (!pts.length) {
+    $('#anSummary').textContent = '';
+    box.innerHTML = empty(all.length ? 'No brews with a grind setting match these filters.' : 'Log brews with a grind setting to see them here.');
+    $('#anTable').innerHTML = '';
+    return;
+  }
+  const dayFmt = d => d.toLocaleDateString(undefined, { day: 'numeric', month: 'short', year: 'numeric' });
+  const first = pts[0].x, last = pts[pts.length - 1].x;
+  $('#anSummary').textContent = `${shown.length === 1 ? shown[0] + ' · ' : ''}${pts.length} brew${pts.length === 1 ? '' : 's'} · ${
+    dayFmt(first)}${+first === +last ? '' : ' – ' + dayFmt(last)}`;
+
+  // scales
+  const W = box.clientWidth || 600, H = 260, m = { t: 12, r: 16, b: 28, l: 40 };
+  let t0 = +first, t1 = +last;
+  if (t0 === t1) { t0 -= 86400000; t1 += 86400000; }
+  const yt = niceTicks(Math.min(...pts.map(p => p.y)), Math.max(...pts.map(p => p.y)));
+  const y0 = yt[0], y1 = yt[yt.length - 1];
+  const sx = t => m.l + (t - t0) / (t1 - t0) * (W - m.l - m.r);
+  const sy = v => H - m.b - (v - y0) / (y1 - y0) * (H - m.t - m.b);
+  const nx = W < 420 ? 3 : 5;
+  const long = t1 - t0 > 300 * 86400000;
+  const xFmt = t => new Date(t).toLocaleDateString(undefined, long ? { month: 'short', year: '2-digit' } : { day: 'numeric', month: 'short' });
+
+  let svg = `<svg viewBox="0 0 ${W} ${H}" width="${W}" height="${H}" role="img" aria-label="Grind setting by date">`;
+  svg += yt.map(v => `<line class="gl" x1="${m.l}" x2="${W - m.r}" y1="${sy(v)}" y2="${sy(v)}"/>
+    <text class="tick" x="${m.l - 8}" y="${sy(v)}" text-anchor="end" dominant-baseline="middle">${v}</text>`).join('');
+  svg += Array.from({ length: nx }, (_, i) => t0 + (t1 - t0) * i / (nx - 1)).map((t, i) =>
+    `<text class="tick" x="${sx(t)}" y="${H - 8}" text-anchor="${i === 0 ? 'start' : i === nx - 1 ? 'end' : 'middle'}">${esc(xFmt(t))}</text>`).join('');
+  shown.forEach(g => {
+    const sp = pts.filter(p => p.g === g);
+    if (sp.length > 1) svg += `<path class="series" stroke="${seriesColor(g)}" d="${sp.map((p, i) => `${i ? 'L' : 'M'}${sx(+p.x)},${sy(p.y)}`).join('')}"/>`;
+  });
+  svg += pts.map((p, i) => `<circle class="dot" data-i="${i}" cx="${sx(+p.x)}" cy="${sy(p.y)}" r="4" fill="${seriesColor(p.g)}"/>`).join('');
+  svg += '</svg><div class="tip" hidden></div>';
+  box.innerHTML = svg;
+
+  // hover / tap: nearest point within reach
+  const el = $('svg', box), tip = $('.tip', box);
+  let hl = null;
+  const hide = () => { tip.hidden = true; if (hl) hl.setAttribute('r', 4); hl = null; };
+  el.addEventListener('pointerleave', hide);
+  el.addEventListener('pointermove', e => {
+    const r = el.getBoundingClientRect();
+    const px = (e.clientX - r.left) * W / r.width, py = (e.clientY - r.top) * H / r.height;
+    let best = -1, bd = 32 ** 2;
+    pts.forEach((p, i) => {
+      const d = (sx(+p.x) - px) ** 2 + (sy(p.y) - py) ** 2;
+      if (d < bd) { bd = d; best = i; }
+    });
+    if (best < 0) return hide();
+    const p = pts[best], bean = p.b.beanId ? Store.bean(p.b.beanId) : null;
+    if (hl) hl.setAttribute('r', 4);
+    hl = $(`.dot[data-i="${best}"]`, el);
+    hl.setAttribute('r', 6);
+    tip.innerHTML = `<b>${esc(fmtDate(p.b.date))}</b>
+      <div><i style="background:${seriesColor(p.g)}"></i>Grind ${p.y} · ${esc(p.b.grinder || 'No grinder')}${p.b.rpm ? ` @ ${p.b.rpm} rpm` : ''}</div>
+      <div class="muted">${esc((METHODS[p.b.method] || METHODS.pourover).short)}${bean ? ' · ' + esc(bean.name) : ''}${p.b.rating ? ' · ' + '★'.repeat(p.b.rating) : ''}</div>`;
+    tip.hidden = false;
+    const cx = sx(+p.x) * r.width / W, cy = sy(p.y) * r.height / H;
+    tip.style.left = `${Math.max(0, Math.min(cx - tip.offsetWidth / 2, r.width - tip.offsetWidth))}px`;
+    tip.style.top = `${cy - tip.offsetHeight - 12 < 0 ? cy + 14 : cy - tip.offsetHeight - 12}px`;
+  });
+
+  $('#anTable').innerHTML = `<div class="table-wrap"><table class="data-table">
+    <thead><tr><th>Date</th><th>Method</th><th>Grinder</th><th>Grind</th><th>RPM</th><th>Rating</th></tr></thead>
+    <tbody>${[...pts].reverse().map(p => `<tr><td>${esc(fmtDate(p.b.date))}</td><td>${esc((METHODS[p.b.method] || METHODS.pourover).short)}</td>
+      <td>${esc(p.b.grinder || '—')}</td><td>${p.y}</td><td>${p.b.rpm ?? ''}</td><td>${p.b.rating ? starsHtml(p.b.rating) : ''}</td></tr>`).join('')}</tbody>
+  </table></div>`;
+}
+
+$('#anMethodChips').addEventListener('click', e => {
+  const c = e.target.closest('[data-m]');
+  if (!c) return;
+  anState.method = c.dataset.m;
+  $$('#anMethodChips .chip').forEach(x => x.classList.toggle('active', x === c));
+  renderAnalytics();
+});
+$('#anGrinderChips').addEventListener('click', e => {
+  const c = e.target.closest('[data-g]');
+  if (!c) return;
+  anState.grinder = c.dataset.g;
+  renderAnalytics();
+});
+let resizeFrame = 0;
+window.addEventListener('resize', () => {
+  cancelAnimationFrame(resizeFrame);
+  resizeFrame = requestAnimationFrame(() => { if (currentView === 'analytics') renderAnalytics(); });
+});
+
 // ---------------- import / export ----------------
 $('#exportBtn').addEventListener('click', () => {
   const blob = new Blob([Store.exportJSON()], { type: 'application/json' });
@@ -767,6 +909,68 @@ $('#importInput').addEventListener('change', async e => {
   } catch (err) {
     toast(`Import failed: ${err.message}`);
   }
+});
+
+// ---------------- account / sync ----------------
+const accountDialog = $('#accountDialog');
+const emailForm = $('#emailForm');
+
+const AUTH_ERRORS = {
+  'auth/popup-closed-by-user': 'Sign-in cancelled',
+  'auth/cancelled-popup-request': 'Sign-in cancelled',
+  'auth/popup-blocked': 'The sign-in popup was blocked — allow popups, or use email',
+  'auth/operation-not-allowed': 'This sign-in method is not enabled in Firebase',
+  'auth/unauthorized-domain': 'This site is not in Firebase’s authorized domains',
+  'auth/invalid-credential': 'Wrong email or password',
+  'auth/invalid-email': 'That email address doesn’t look right',
+  'auth/email-already-in-use': 'That email already has an account — sign in instead',
+  'auth/weak-password': 'Password must be at least 6 characters',
+  'auth/network-request-failed': 'You’re offline — connect to sign in',
+};
+const authError = err => AUTH_ERRORS[err.code] || err.message;
+
+function renderAccount(user) {
+  $('#accountBtn').textContent = user ? '☁ Account' : 'Sign in';
+  $('#accountOut').hidden = !!user;
+  $('#accountIn').hidden = !user;
+  if (user) $('#accountEmail').textContent = user.email || user.displayName || 'your account';
+}
+
+if (Store.cloudAvailable) {
+  $('#accountBtn').hidden = false;
+  renderAccount(null);
+  Store.onAuth(user => {
+    renderAccount(user);
+    if (user && accountDialog.open) { accountDialog.close(); toast('Signed in — syncing your brews'); }
+  });
+  Store.onChange(render);
+}
+
+$('#accountBtn').addEventListener('click', () => accountDialog.showModal());
+$('#accountCancel').addEventListener('click', () => accountDialog.close());
+$('#accountClose').addEventListener('click', () => accountDialog.close());
+
+$('#googleSignIn').addEventListener('click', () => {
+  Store.signInGoogle().catch(err => toast(authError(err)));
+});
+
+emailForm.addEventListener('submit', e => {
+  e.preventDefault();
+  const E = emailForm.elements;
+  const create = e.submitter && e.submitter.value === 'create';
+  Store.signInEmail(E.email.value.trim(), E.password.value, create)
+    .then(() => emailForm.reset())
+    .catch(err => toast(authError(err)));
+});
+
+$('#signOutBtn').addEventListener('click', async () => {
+  if (!(await Store.flush()) &&
+    !confirm('Some changes haven’t reached the cloud yet (are you offline?). Signing out now will lose them. Sign out anyway?')) return;
+  await Store.signOut();
+  accountDialog.close();
+  fillBrewForm({ method: F('method').value });
+  render();
+  toast('Signed out — your data is safe in your account');
 });
 
 // ---------------- PWA ----------------
