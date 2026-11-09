@@ -43,7 +43,7 @@ const METHODS = {
   pourover: {
     label: 'Pour-over', short: 'Pour-over', waterLabel: 'Water (g)', timeLabel: 'Total time (m:ss)',
     fields: [
-      { key: 'dripper', label: 'Dripper', type: 'select', options: ['Hario V60', 'Kalita Wave', 'Chemex', 'Origami', 'April', 'Orea', 'Melitta', 'Other'] },
+      { key: 'dripper', label: 'Dripper', type: 'select', options: ['Hario V60', 'Hario Switch', 'Timemore B75', 'Origami'] },
       { key: 'filter', label: 'Filter', placeholder: 'e.g. Hario tabbed' },
       { key: 'bloomWater', label: 'Bloom water (g)', type: 'number' },
       { key: 'bloomTime', label: 'Bloom time (s)', type: 'number' },
@@ -765,7 +765,7 @@ $('#apClassics').addEventListener('click', e => {
 });
 
 // ---------------- analytics ----------------
-const anState = { method: '', grinder: '' };
+const anState = { method: null, grinder: null }; // set from the latest brew on first view
 // Series colour follows the grinder, so filtering never repaints a line. Any other grinder folds into "Other".
 const SERIES = [...GRINDERS, 'Other'];
 const grinderGroup = g => (GRINDERS.includes(g) ? g : 'Other');
@@ -790,15 +790,16 @@ function analyticsPoints() {
 function renderAnalytics() {
   const all = analyticsPoints();
   const groups = SERIES.filter(g => g !== 'Other' || all.some(p => p.g === 'Other'));
-  if (anState.grinder && !groups.includes(anState.grinder)) anState.grinder = '';
-  $('#anGrinderChips').innerHTML = [['', 'All grinders'], ...groups.map(g => [g, g])]
-    .map(([v, l]) => `<button data-g="${esc(v)}" class="chip${v === anState.grinder ? ' active' : ''}">${esc(l)}</button>`).join('');
+  const latest = all[all.length - 1];
+  if (!anState.method) anState.method = latest ? latest.b.method : 'pourover';
+  if (!groups.includes(anState.grinder)) anState.grinder = latest ? latest.g : groups[0];
+  $$('#anMethodChips .chip').forEach(x => x.classList.toggle('active', x.dataset.m === anState.method));
+  $('#anGrinderChips').innerHTML = groups
+    .map(g => `<button data-g="${esc(g)}" class="chip${g === anState.grinder ? ' active' : ''}">${esc(g)}</button>`).join('');
 
-  const pts = all.filter(p => (!anState.method || p.b.method === anState.method) && (!anState.grinder || p.g === anState.grinder));
+  const pts = all.filter(p => p.b.method === anState.method && p.g === anState.grinder);
   const shown = SERIES.filter(g => pts.some(p => p.g === g));
   const box = $('#anChart');
-  $('#anLegend').innerHTML = shown.length > 1
-    ? shown.map(g => `<span><i style="background:${seriesColor(g)}"></i>${esc(g)}</span>`).join('') : '';
   if (!pts.length) {
     $('#anSummary').textContent = '';
     box.innerHTML = empty(all.length ? 'No brews with a grind setting match these filters.' : 'Log brews with a grind setting to see them here.');
@@ -873,7 +874,6 @@ $('#anMethodChips').addEventListener('click', e => {
   const c = e.target.closest('[data-m]');
   if (!c) return;
   anState.method = c.dataset.m;
-  $$('#anMethodChips .chip').forEach(x => x.classList.toggle('active', x === c));
   renderAnalytics();
 });
 $('#anGrinderChips').addEventListener('click', e => {

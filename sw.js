@@ -1,6 +1,6 @@
 // Offline support: serve the app shell from cache, refresh it in the background.
 // Bump CACHE when shipping changes so installed apps pick them up.
-const CACHE = 'brewlog-v3';
+const CACHE = 'brewlog-v4';
 const ASSETS = [
   './',
   'index.html',

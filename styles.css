@@ -266,9 +266,7 @@ label.check.inline { white-space: nowrap; }
 
 /* ---------- analytics ---------- */
 .chart-title { margin: 0 0 2px; font-size: 1.05rem; }
-.legend { display: flex; flex-wrap: wrap; gap: 6px 14px; margin-top: 10px; font-size: .85rem; color: var(--text); }
-.legend:empty { display: none; }
-.legend i, .tip i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; }
+.tip i { display: inline-block; width: 10px; height: 10px; border-radius: 50%; margin-right: 6px; vertical-align: -1px; }
 .chart { position: relative; margin-top: 10px; }
 .chart svg { display: block; width: 100%; height: auto; touch-action: pan-y; }
 .chart .gl { stroke: var(--border); stroke-width: 1; }
